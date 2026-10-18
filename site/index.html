@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F3F4F6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Япония">
+<meta name="robots" content="noindex, nofollow">
+<title>Япония</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;600&family=Noto+Sans+JP:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="lock" class="lock" hidden>
+  <div class="lock-box">
+    <div class="lock-mark" aria-hidden="true">
+      <svg viewBox="0 0 64 64" width="56" height="56"><rect width="64" height="64" rx="16" fill="#24457A"/><path d="M12 20h40v5H12zM16 25h32v4H16zM20 29h5v22h-5zM39 29h5v22h-5zM14 16c6 2 30 2 36 0v4H14z" fill="#fff"/></svg>
+    </div>
+    <h1>Япония</h1>
+    <p class="muted">13–27 ноября. Введи пароль один раз — дальше всё работает без интернета.</p>
+    <form id="lock-form" autocomplete="off">
+      <label for="pw" class="sr">Пароль</label>
+      <input id="pw" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" placeholder="Пароль" required>
+      <button type="submit" class="btn primary wide" id="lock-btn">Открыть</button>
+      <p id="lock-msg" class="lock-msg" role="status"></p>
+    </form>
+  </div>
+</div>
+
+<div id="app" class="app" hidden>
+  <main id="views">
+    <section id="v-today" class="view" data-tab="today"></section>
+    <section id="v-map" class="view view-map" data-tab="map">
+      <div id="map"></div>
+      <div id="map-ui"></div>
+    </section>
+    <section id="v-docs" class="view" data-tab="docs"></section>
+    <section id="v-money" class="view" data-tab="money"></section>
+    <section id="v-phrases" class="view" data-tab="phrases"></section>
+  </main>
+  <div id="sheet-wrap" class="sheet-wrap" hidden>
+    <div class="sheet-backdrop" data-act="closeSheet"></div>
+    <div id="sheet" class="sheet" role="dialog" aria-modal="true"></div>
+  </div>
+  <nav class="tabbar" aria-label="Разделы">
+    <button data-act="tab" data-tab="today"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg><span>Сегодня</span></button>
+    <button data-act="tab" data-tab="map"><svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span>Карта</span></button>
+    <button data-act="tab" data-tab="docs"><svg viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg><span>Документы</span></button>
+    <button data-act="tab" data-tab="money"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 15h2"/></svg><span>Деньги</span></button>
+    <button data-act="tab" data-tab="phrases"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg><span>Шпаргалки</span></button>
+  </nav>
+</div>
+
+<div id="overlay" class="overlay" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
+<script src="app.js"></script>
+</body>
+</html>
