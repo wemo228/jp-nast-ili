@@ -1,6 +1,6 @@
 /* Offline cache. Shell: stale-while-revalidate. data.enc: network-first. Tiles/CDN/fonts: cache-first. */
-const V = 'v1';
-const SHELL = 'shell-' + V, DATA = 'data', TILES = 'tiles', CDN = 'cdn';
+const V = 'v3';
+const SHELL = 'shell-' + V, DATA = 'data', TILES = 'tiles-osm', CDN = 'cdn';
 const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs'];
 const CDN_FILES = ['https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'];
 
@@ -14,7 +14,7 @@ self.addEventListener('install', e => {
 });
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k.startsWith('shell-') && k !== SHELL) await caches.delete(k);
+    for (const k of await caches.keys()) if ((k.startsWith('shell-') && k !== SHELL) || k === 'tiles') await caches.delete(k);
     await self.clients.claim();
   })());
 });
@@ -29,8 +29,8 @@ self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  if (url.hostname.endsWith('basemaps.cartocdn.com')) {
-    const key = url.origin.replace(/\/\/[abcd]\./, '//a.') + url.pathname; // one key for all subdomains
+  if (url.hostname === 'tile.openstreetmap.org') {
+    const key = url.href;
     e.respondWith((async () => {
       const c = await caches.open(TILES);
       const hit = await c.match(key); if (hit) return hit;

@@ -364,7 +364,7 @@ function initMap() {
   if (!window.L) { $('#map').innerHTML = '<div class="nomap">Карта не загрузилась — нужен интернет при первом открытии. Список мест работает: кнопка «Список» сверху.</div>'; return; }
   const v = S.map || (() => { const c = T.cities.find(x => x.id === 'osaka'); return { lat: c.lat, lng: c.lng, z: c.z }; })();
   map = L.map('map', { zoomControl: false, tapHold: true, attributionControl: true }).setView([v.lat, v.lng], v.z);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20, crossOrigin: 'anonymous', attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>' }).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, crossOrigin: 'anonymous', attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
   routeLayer = L.layerGroup().addTo(map); mkLayer = L.layerGroup().addTo(map); meLayer = L.layerGroup().addTo(map);
   map.on('moveend', () => { const c = map.getCenter(); S.map = { lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5), z: map.getZoom() }; saveState(); });
   map.on('zoomend', refreshMarkers);
@@ -795,11 +795,15 @@ function renderToday() {
       ${stay ? `<div class="row" data-act="place" data-id="${stay.id}" style="cursor:pointer">Ночуем: ${esc(stay.name)}${stay.hours ? ' · ' + esc(stay.hours) : ''} ›</div>` : ''}
     </div>
     ${before && chk ? `<button class="card between" data-act="goChecklist" style="border:none;text-align:left"><span><span class="label">Перед выездом</span><div style="font-size:15px;font-weight:600;margin-top:4px">Чек-лист: ${chkDone} из ${chk.items.length}</div></span>${I.chev.replace('<svg', '<svg width="20" height="20" style="fill:none;stroke:#8A909C;stroke-width:2"')}</button>` : ''}
-    <div class="card pad0"><div class="tl">${day.items.length ? day.items.map(it => {
+    <div class="card pad0"><div class="between" style="padding:12px 0 4px"><span class="label">План дня</span><span class="row" style="gap:6px"><button class="btn sm ${S.planEdit ? 'ghost' : ''}" data-act="planEdit">${S.planEdit ? 'Готово' : 'Править'}</button><button class="btn sm ghost" data-act="evAdd" data-d="${d}">+ Событие</button></span></div><div class="tl">${timeline(d, day).map(it => {
+      const hid = it._key && (U.hiddenItems || {})[it._key];
+      if (hid && !S.planEdit) return '';
       const p = it.place ? placeById(it.place) : null;
-      const act = p ? `data-act="place" data-id="${esc(p.id)}"` : it.phrase ? `data-act="phrase" data-id="${esc(it.phrase)}"` : '';
-      return `<${act ? 'button' : 'div'} class="tl-item ${esc(it.kind || '')}" ${act}><span class="tl-t">${esc(it.t || '')}</span><span class="tl-b"><b>${esc(it.title)}</b>${it.text ? `<span>${esc(it.text)}</span>` : ''}</span>${act ? `<span class="tl-go">${I.chev}</span>` : ''}</${act ? 'button' : 'div'}>`;
-    }).join('') : '<div class="empty">Свободный день. Отмечай места «В план на день» — они появятся ниже.</div>'}</div></div>
+      const act = it._user ? `data-act="evEdit" data-id="${esc(it.id)}"` : p ? `data-act="place" data-id="${esc(p.id)}"` : it.phrase ? `data-act="phrase" data-id="${esc(it.phrase)}"` : '';
+      const tail = S.planEdit && it._key ? `<span class="mini" data-act="itemHide" data-k="${esc(it._key)}" style="flex:none">${hid ? '↺' : I.x}</span>` : act ? `<span class="tl-go">${it._user ? '✎' : I.chev}</span>` : '';
+      const tag = act || (S.planEdit && it._key) ? 'button' : 'div';
+      return `<${tag} class="tl-item ${esc(it.kind || '')}" ${S.planEdit && it._key ? '' : act} style="${hid ? 'opacity:.4' : ''}"><span class="tl-t">${esc(it.t || '')}</span><span class="tl-b"><b>${it._user ? '• ' : ''}${esc(it.title)}</b>${it.text ? `<span>${esc(it.text)}</span>` : ''}${it._user && p ? `<span>📍 ${esc(p.name)}</span>` : ''}</span>${tail}</${tag}>`;
+    }).join('') || '<div class="empty">Свободный день. «+ Событие» — добавить своё, или отмечай места «В план на день».</div>'}</div></div>
     <div class="card pad0">
       <div class="between" style="padding:12px 0 6px"><span class="label">Мои места на ${fDayShort(d)}</span>${mine.length ? `<button class="btn sm ghost" data-act="dayRoute" data-d="${d}">${route ? 'Открыть маршрут' : 'Маршрут дня'}</button>` : ''}</div>
       ${mine.length ? mine.map(p => placeRow(p, ME && p.lat != null ? dist(ME, p) : null)).join('') : '<div class="empty" style="padding:8px 0 16px">Пока нет. В карточке места → «В план на день».</div>'}
@@ -810,6 +814,51 @@ function renderToday() {
 }
 const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c; };
 A.day = el => { S.day = el.dataset.d; saveState(); renderToday(); };
+function timeKey(t) {
+  const x = String(t || '').toLowerCase(); const m = x.match(/(\d{1,2})(?:[:.](\d{2}))?/);
+  if (m) return +m[1] * 60 + +(m[2] || 0);
+  if (/утр|откр/.test(x)) return 540; if (/день|обед/.test(x)) return 780; if (/вечер/.test(x)) return 1080; if (/ноч/.test(x)) return 1320;
+  return null;
+}
+function timeline(d, day) {
+  const base = day.items.map((it, i) => Object.assign({}, it, { _key: d + '#' + i }));
+  const mine = (U.events || []).filter(e => e.date === d).map(e => Object.assign({}, e, { _user: true }));
+  const out = base.slice();
+  for (const e of mine.sort((a, b) => (timeKey(a.t) ?? 9999) - (timeKey(b.t) ?? 9999))) {
+    const k = timeKey(e.t); let at = out.length;
+    if (k != null) { const i = out.findIndex(x => (timeKey(x.t) ?? -1) > k); if (i >= 0) at = i; }
+    out.splice(at, 0, e);
+  }
+  return out;
+}
+A.planEdit = () => { S.planEdit = !S.planEdit; saveState(); renderToday(); };
+A.itemHide = el => { U.hiddenItems = U.hiddenItems || {}; const k = el.dataset.k; if (U.hiddenItems[k]) delete U.hiddenItems[k]; else U.hiddenItems[k] = true; saveUser(); renderToday(); };
+A.evAdd = el => openSheet({ type: 'ev', draft: { id: '', date: el.dataset.d, t: '', title: '', text: '', place: '' } });
+A.evEdit = el => { const e = (U.events || []).find(x => x.id === el.dataset.id); if (e) openSheet({ type: 'ev', draft: Object.assign({ place: '', text: '' }, e) }); };
+SHEETS.ev = spec => {
+  const d = spec.draft;
+  const day = T.days.find(x => x.date === d.date) || {};
+  const cityId = (T.cities.find(c => c.name === (day.city || '').split(' ')[0]) || {}).id;
+  const pl = getPlaces().slice().sort((a, b) => ((b.city === cityId) - (a.city === cityId)) || a.name.localeCompare(b.name));
+  return {
+    head: `<h2>${d.id ? 'Событие' : 'Новое событие'}</h2><div class="muted" style="font-size:13px;margin-top:2px">${fDay(d.date)}</div>`,
+    body: `<div class="grid2"><label class="field"><span>Время</span><input data-f="t" value="${esc(d.t)}" placeholder="14:30 или вечер"></label><label class="field"><span>День</span><select data-f="date">${tripDays().map(x => `<option value="${x}" ${x === d.date ? 'selected' : ''}>${fDayShort(x)}</option>`).join('')}</select></label></div>
+    <label class="field"><span>Что</span><input data-f="title" value="${esc(d.title)}" placeholder="Ужин в идзакае"></label>
+    <label class="field"><span>Подробности</span><textarea data-f="text" placeholder="Бронь на 19:00, спросить столик у окна">${esc(d.text)}</textarea></label>
+    <label class="field"><span>Место на карте (необязательно)</span><select data-f="place"><option value="">— без места —</option>${pl.map(p => `<option value="${esc(p.id)}" ${p.id === d.place ? 'selected' : ''}>${esc(p.name)}${p.city ? ' · ' + esc(cityName(p.city)) : ''}</option>`).join('')}</select></label>
+    <button class="btn primary wide" data-act="evSave">Сохранить</button>
+    ${d.place ? `<button class="btn wide" data-act="place" data-id="${esc(d.place)}">Показать место на карте</button>` : ''}
+    ${d.id ? '<button class="btn warn wide" data-act="evDel">Удалить</button>' : ''}`
+  };
+};
+A.evSave = () => {
+  const d = S.sheet.draft; if (!d.title.trim()) return toast('Напиши, что за событие');
+  U.events = U.events || [];
+  const rec = { id: d.id || uid('ev'), date: d.date, t: d.t.trim(), title: d.title.trim(), text: (d.text || '').trim(), place: d.place || '' };
+  const i = U.events.findIndex(x => x.id === rec.id); if (i >= 0) U.events[i] = rec; else U.events.push(rec);
+  saveUser(); S.day = rec.date; closeSheet(); renderToday(); toast('Добавлено в план');
+};
+A.evDel = el => { if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Точно удалить?'; return; } U.events = (U.events || []).filter(x => x.id !== S.sheet.draft.id); saveUser(); closeSheet(); renderToday(); };
 A.goChecklist = () => { S.phr = 'checks'; showTab('phrases'); };
 
 // ============================================================
@@ -1036,7 +1085,7 @@ SHEETS.settings = spec => {
     body: `
     <div class="stack" style="gap:6px"><span class="label">Данные поездки</span><div class="row"><span class="grow muted" style="font-size:13px">Версия ${esc(REV)} · ${DOCS.length} документов · ${T.places.length} мест</span><button class="btn sm" data-act="checkUpd">Проверить обновление</button></div></div>
     <div class="stack" style="gap:6px"><span class="label">Импорт мест от Claude</span><textarea data-f="imp" style="min-height:90px;border-radius:12px;border:1px solid var(--line);background:var(--field);padding:10px 12px;font-size:14px;font-family:ui-monospace,monospace" placeholder='Вставь JSON с местами'>${esc(spec.draft.imp)}</textarea><button class="btn ghost" data-act="importPlaces">Импортировать</button><span class="hint">Скидываешь мне ссылки из Instagram/Reddit — я отдаю готовый блок, ты вставляешь сюда. Совпадающие места обновятся, не задвоятся.</span></div>
-    <div class="stack" style="gap:6px"><span class="label">Карта без интернета</span><button class="btn" data-act="saveTiles">Сохранить видимую область карты</button><span class="hint">Сохраняет то, что сейчас на экране карты, плюс 2 уровня приближения. Делай на Wi-Fi для каждого района. Всё, что уже смотрел, тоже хранится.</span></div>
+    <div class="stack" style="gap:6px"><span class="label">Карта без интернета</span><span class="hint">Всё, что ты уже смотрел на карте, хранится на телефоне. Пролистай нужные районы на Wi-Fi с приближением до уровня улиц — потом они откроются без сети.</span></div>
     <div class="stack" style="gap:6px"><span class="label">Резервная копия</span><div class="row"><button class="btn sm grow" data-act="backup">Сохранить копию</button><label class="btn sm grow">Восстановить<input type="file" accept="application/json,.json" data-chg="restore" hidden></label></div><span class="hint">Мои места, заметки, маршруты, траты, чек-листы. Стоит сохранять копию в «Файлы» раз в пару дней.</span></div>
     ${hidden.length ? `<div class="stack" style="gap:6px"><span class="label">Скрытые места</span>${hidden.map(p => `<div class="between"><span>${esc(p.name)}</span><button class="btn sm" data-act="unhide" data-id="${p.id}">Вернуть</button></div>`).join('')}</div>` : ''}
     <button class="btn warn" data-act="lockApp">Заблокировать (нужен будет пароль)</button>`
@@ -1076,23 +1125,5 @@ A.restore = async el => {
   try { const j = JSON.parse(await f.text()); if (!j.user) throw 0; U = Object.assign(clone(DEF_USER), j.user); saveUser(); toast('Восстановлено'); closeSheet(); renderAll(); refreshMarkers(); drawRoute(); }
   catch (e) { toast('Файл не подходит'); }
 };
-A.saveTiles = async () => {
-  if (!map) return toast('Карта не загружена');
-  const b = map.getBounds(), z0 = map.getZoom(); const urls = [];
-  const t = (lat, lng, z) => { const n = 2 ** z; const x = Math.floor((lng + 180) / 360 * n); const r = lat * Math.PI / 180; const y = Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n); return [x, y]; };
-  const dpr = (window.devicePixelRatio || 1) > 1 ? '@2x' : '';
-  for (let z = Math.max(z0, 12); z <= Math.min(z0 + 2, 18); z++) {
-    const [x1, y1] = t(b.getNorth(), b.getWest(), z), [x2, y2] = t(b.getSouth(), b.getEast(), z);
-    for (let x = x1; x <= x2; x++) for (let y = y1; y <= y2; y++) urls.push(`https://${'abcd'[(x + y) % 4]}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}${dpr}.png`);
-  }
-  if (urls.length > 700) return toast('Слишком большая область — приблизь карту');
-  closeSheet(); let ok = 0;
-  toast(`Сохраняю ${urls.length} фрагментов…`);
-  for (let i = 0; i < urls.length; i += 6) {
-    await Promise.all(urls.slice(i, i + 6).map(u => fetch(u, { mode: 'cors' }).then(r => { if (r.ok) ok++; }).catch(() => { })));
-  }
-  toast(`Готово: ${ok} из ${urls.length} сохранено`);
-};
-
 // ---------- go ----------
 boot();
