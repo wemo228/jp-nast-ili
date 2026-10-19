@@ -1,7 +1,7 @@
 /* Offline cache. Shell: stale-while-revalidate. data.enc: network-first. Tiles/CDN/fonts: cache-first. */
-const V = 'v5';
+const V = 'v6';
 const SHELL = 'shell-' + V, DATA = 'data', TILES = 'tiles-osm', CDN = 'cdn';
-const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs'];
+const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'en.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs'];
 const CDN_FILES = ['https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'];
 
 self.addEventListener('install', e => {
@@ -72,6 +72,6 @@ self.addEventListener('fetch', e => {
     const hit = await c.match(key);
     const net = fetch(req).then(r => { if (r.ok) c.put(key, r.clone()); return r; }).catch(() => null);
     if (hit) { e.waitUntil(net); return hit; }
-    return (await net) || new Response('Нет сети', { status: 504 });
+    return (await net) || new Response('Offline · Нет сети', { status: 504 });
   })());
 });
