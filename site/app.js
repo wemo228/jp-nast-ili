@@ -310,10 +310,15 @@ function onClick(e) {
   if (el.tagName === 'A' && !el.dataset.keep) e.preventDefault();
   fn(el, e);
 }
+let geoTimer;
 function onInput(e) {
   const el = e.target;
   if (el.id === 'q') { S.q = el.value; saveState(); refreshMarkers(); const cb = $('[data-act=clearQ]'); if (cb) cb.hidden = !S.q; if (S.list) renderMapList(); return; }
-  if (el.dataset.f && S.sheet && S.sheet.draft) { S.sheet.draft[el.dataset.f] = el.value; saveState(); if (el.dataset.f === 'geo') geoHint(); return; }
+  if (el.dataset.f && S.sheet && S.sheet.draft) {
+    const d = S.sheet.draft; d[el.dataset.f] = el.value;
+    if (el.dataset.f === 'geo') { d.lat = ''; d.lng = ''; d.resolvedName = ''; clearTimeout(geoTimer); geoTimer = setTimeout(() => tryResolveDraft(d), 700); }
+    saveState(); if (el.dataset.f === 'geo') geoHint(); return;
+  }
   if (el.dataset.note) { setMeta(el.dataset.note, { note: el.value }); return; }
   if (el.dataset.routeName) { const r = activeRoute(); if (r) { r.name = el.value; saveUser(); } return; }
 }
@@ -339,7 +344,7 @@ function renderSheet() {
   if (!out) { S.sheet = null; saveState(); wrap.hidden = true; return; }
   wrap.hidden = false; wrap.classList.toggle('peek', !!out.peek);
   sh.innerHTML = `<div class="sheet-grip"></div><div class="sheet-head"><div class="grow">${out.head}</div><button class="close" data-act="closeSheet" aria-label="Закрыть">${I.x}</button></div><div class="sheet-body">${out.body}</div>`;
-  if (S.sheet.type === 'form') geoHint();
+  if (S.sheet.type === 'form' || S.sheet.type === 'ev') geoHint();
   updateRouteBar();
 }
 const SHEETS = {};
@@ -382,7 +387,7 @@ function filtered() {
     if (S.f.open) { const o = openState(p); if (o && !o.open) return false; }
     if (dayIds && m.day !== d && !dayIds.has(p.id) && !(p.cat === 'stay' && stayFor(d) && stayFor(d).id === p.id)) return false;
     if (q) {
-      const hay = [p.name, p.ja, p.notes, p.sub, p.address, m.note, p.source && p.source.text, catById(p.cat).name, cityName(p.city), (p.tags || []).join(' ')].join(' ').toLowerCase();
+      const hay = [p.name, p.ja, p.notes, p.try, p.sub, p.address, m.note, p.source && p.source.text, catById(p.cat).name, cityName(p.city), (p.tags || []).join(' ')].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -540,6 +545,7 @@ SHEETS.place = spec => {
   ].filter(Boolean).join('');
   const info = [
     p.notes ? ['Что это', esc(p.notes)] : null,
+    p.try ? ['Брать / пробовать', esc(p.try)] : null,
     p.dates ? ['Даты', esc(p.dates)] : null,
     p.hours ? ['Часы', esc(p.hours)] : null,
     p.price ? ['Цены', esc(p.price)] : null,
@@ -556,6 +562,7 @@ SHEETS.place = spec => {
     </div>
     ${p.ja || p.address ? `<div class="actions"><button class="btn sm" data-act="taxi" data-id="${esc(p.id)}">Показать таксисту</button><button class="btn sm" data-act="copy" data-v="${esc(p.ja || p.address)}">Копировать адрес</button></div>` : ''}
     ${info.length ? `<dl class="card pad0" style="margin:0;border:1px solid var(--line2)">${info.map(([k, v]) => `<div class="kv"><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>` : ''}
+    ${placeExtras(p)}
     ${src.text || src.url ? `<div class="stack" style="gap:6px"><div class="src"><span class="label">Источник</span>${src.type ? `<span class="badge grey">${esc(SRC[src.type] || src.type)}</span>` : ''}${safeUrl(src.url) ? `<a href="${esc(safeUrl(src.url))}" target="_blank" rel="noopener" data-keep="1" style="margin-left:auto;font-weight:600">Открыть ↗</a>` : ''}</div>${src.text ? `<div class="quote">${esc(src.text)}</div>` : ''}</div>` : ''}
     <label class="field"><span>Моя заметка</span><textarea data-note="${esc(p.id)}" placeholder="Что заказать, что купить, с кем идти…">${esc(m.note || '')}</textarea></label>
     <div class="stack" style="gap:6px"><span class="label">В план на день</span><div class="days">${tripDays().map(dd => dayChip(dd, m.day === dd, `data-act="planDay" data-id="${esc(p.id)}" data-d="${dd}"`)).join('')}</div></div>
@@ -581,7 +588,7 @@ A.delPlace = el => {
 // ADD / EDIT PLACE
 // ============================================================
 function openForm(draft) {
-  const d = Object.assign({ id: '', name: '', cat: '', sub: '', city: '', geo: '', lat: '', lng: '', ja: '', address: '', hours: '', price: '', notes: '', srcType: '', srcUrl: '', srcText: '', gmaps: '' }, draft || {});
+  const d = Object.assign({ id: '', name: '', cat: '', sub: '', city: '', geo: '', lat: '', lng: '', ja: '', address: '', hours: '', price: '', notes: '', try: '', srcType: '', srcUrl: '', srcText: '', gmaps: '' }, draft || {});
   S.pick = null; S.sel = null;
   if (S.tab !== 'map') showTab('map');
   openSheet({ type: 'form', draft: d }); renderMapUI(); refreshMarkers();
@@ -590,7 +597,7 @@ A.addPlace = () => openForm({});
 A.editPlace = el => {
   const p = placeById(el.dataset.id); if (!p) return;
   const s = p.source || {};
-  openForm({ id: p.id, name: p.name || '', cat: p.cat || '', sub: p.sub || '', city: p.city || '', geo: p.lat != null ? `${p.lat}, ${p.lng}` : '', lat: p.lat ?? '', lng: p.lng ?? '', ja: p.ja || '', address: p.address || '', hours: p.hours || '', price: p.price || '', notes: p.notes || '', srcType: s.type || '', srcUrl: s.url || '', srcText: s.text || '', gmaps: p.gmaps || '' });
+  openForm({ id: p.id, name: p.name || '', cat: p.cat || '', sub: p.sub || '', city: p.city || '', geo: p.lat != null ? `${p.lat}, ${p.lng}` : '', lat: p.lat ?? '', lng: p.lng ?? '', ja: p.ja || '', address: p.address || '', hours: p.hours || '', price: p.price || '', notes: p.notes || '', try: p.try || '', srcType: s.type || '', srcUrl: s.url || '', srcText: s.text || '', gmaps: p.gmaps || '' });
 };
 SHEETS.form = spec => {
   const d = spec.draft; const cat = catById(d.cat);
@@ -602,6 +609,7 @@ SHEETS.form = spec => {
     <div class="stack" style="gap:6px"><span class="label">Категория</span><div class="chips wrap">${T.categories.map(c => `<button class="chip" data-act="fCat" data-id="${c.id}" aria-pressed="${d.cat === c.id}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</button>`).join('')}</div></div>
     ${d.cat && cat.subs.length ? `<div class="stack" style="gap:6px"><span class="label">Тип</span><div class="chips wrap">${cat.subs.map(s => `<button class="chip" data-act="fSub" data-v="${esc(s)}" aria-pressed="${d.sub === s}">${esc(s)}</button>`).join('')}</div></div>` : ''}
     <label class="field"><span>Что это (коротко)</span><textarea data-f="notes" placeholder="Рамен на свином бульоне, очередь с 11:00">${esc(d.notes)}</textarea></label>
+    <label class="field"><span>Что брать / пробовать</span><input data-f="try" value="${esc(d.try || '')}" placeholder="Тонкацу-сет, матча-латте…"></label>
     <label class="field"><span>Часы работы</span><input data-f="hours" value="${esc(d.hours)}" placeholder="11:00–22:00, вых: вт"><span class="hint">Формат «11:00–22:00, вых: вт» — тогда работает фильтр «Открыто сейчас»</span></label>
     <label class="field"><span>Цены / средний чек</span><input data-f="price" value="${esc(d.price)}" placeholder="¥1 200"></label>
     <label class="field"><span>Адрес или название по-японски (для такси и поиска)</span><input data-f="ja" value="${esc(d.ja)}" lang="ja"></label>
@@ -613,11 +621,46 @@ SHEETS.form = spec => {
 };
 function geoHint() {
   const el = $('#geo-hint'); if (!el || !S.sheet || !S.sheet.draft) return;
-  const d = S.sheet.draft; const g = parseGeo(d.geo);
-  if (!d.geo.trim()) { el.className = 'hint'; el.textContent = d.lat !== '' ? `Точка: ${(+d.lat).toFixed(5)}, ${(+d.lng).toFixed(5)}` : 'Можно и без ссылки: «Указать на карте» или долгий тап по карте.'; return; }
+  const d = S.sheet.draft; const g = parseGeo(d.geo || '');
+  const hasPt = d.lat !== '' && d.lat != null;
+  if (resolving) { el.className = 'hint'; el.textContent = 'Ищу точку по ссылке…'; return; }
+  if (!(d.geo || '').trim()) { el.className = 'hint' + (hasPt ? ' ok' : ''); el.textContent = hasPt ? `Точка на карте: ${(+d.lat).toFixed(5)}, ${(+d.lng).toFixed(5)}` : (S.sheet.type === 'ev' ? 'Вставь ссылку из Google Maps — место появится на карте. Или выбери уже сохранённое ниже.' : 'Можно и без ссылки: «Указать на карте» или долгий тап по карте.'); return; }
   if (g && g.lat != null) { el.className = 'hint ok'; el.textContent = `Координаты найдены: ${g.lat.toFixed(5)}, ${g.lng.toFixed(5)}${g.name ? ' · ' + g.name : ''}`; return; }
-  if (g && g.short) { el.className = 'hint bad'; el.textContent = d.lat !== '' ? 'Короткая ссылка сохранится, точка уже стоит.' : 'Короткую ссылку maps.app.goo.gl нельзя раскрыть без сервера. Ссылка сохранится, а точку поставь «Указать на карте» — или открой ссылку в Safari и скопируй длинный адрес.'; return; }
+  if (hasPt) { el.className = 'hint ok'; el.textContent = `Точка найдена: ${(+d.lat).toFixed(5)}, ${(+d.lng).toFixed(5)}${d.resolvedName ? ' · ' + d.resolvedName : ''}`; return; }
+  if (g && g.short) { el.className = 'hint bad'; el.textContent = 'Короткая ссылка: при сохранении попробую найти точку через интернет. Не выйдет — поставь её «Указать на карте».'; return; }
   el.className = 'hint bad'; el.textContent = 'Координат нет. Поставь точку «Указать на карте».';
+}
+let resolving = false;
+function fetchT(url, ms) { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return fetch(url, { signal: c.signal }).finally(() => clearTimeout(t)); }
+function geoFromText(txt) {
+  const s = String(txt || '').replace(/%2C/gi, ',').replace(/%21/g, '!').replace(/%40/g, '@').replace(/\\u0026/g, '&');
+  let m, out = null;
+  const ok = (a, b) => { a = +a; b = +b; return Math.abs(a) <= 90 && Math.abs(b) <= 180 && !(a === 0 && b === 0) ? { lat: +a.toFixed(6), lng: +b.toFixed(6) } : null; };
+  if ((m = s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/))) out = ok(m[1], m[2]);
+  if (!out && (m = s.match(/@(-?\d{1,2}\.\d{3,}),(-?\d{1,3}\.\d{3,})/))) out = ok(m[1], m[2]);
+  if (!out && (m = s.match(/(?:center|ll|markers|q|query)=(-?\d{1,2}\.\d{3,}),\s*(-?\d{1,3}\.\d{3,})/))) out = ok(m[1], m[2]);
+  if (!out) return null;
+  if ((m = s.match(/\/maps\/place\/([^/@?"&]+)/))) { try { out.name = decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch (e) { } }
+  if (!out.name && (m = s.match(/property="og:title"\s+content="([^"]+)"|content="([^"]+)"\s+property="og:title"/))) out.name = (m[1] || m[2]).split(' · ')[0].replace(/&amp;/g, '&').replace(/&#39;/g, "'");
+  return out;
+}
+async function resolveShort(url) {
+  const tries = [
+    async () => { const j = await (await fetchT('https://api.allorigins.win/get?url=' + encodeURIComponent(url), 9000)).json(); return [j.status && j.status.url, j.contents].filter(Boolean).join('\n'); },
+    async () => { const r = await fetchT('https://corsproxy.io/?url=' + encodeURIComponent(url), 9000); return r.url + '\n' + await r.text(); },
+  ];
+  for (const t of tries) { try { const g = geoFromText(await t()); if (g) return g; } catch (e) { } }
+  return null;
+}
+async function tryResolveDraft(d) {
+  const g = parseGeo(d.geo || '');
+  if (!g || g.lat != null || !g.short || (d.lat !== '' && d.lat != null)) return;
+  resolving = true; geoHint();
+  const r = await resolveShort(g.url);
+  resolving = false;
+  if (r) { d.lat = r.lat; d.lng = r.lng; if (r.name) { d.resolvedName = r.name; if ('name' in d && !d.name) d.name = r.name; } saveState(); }
+  if (S.sheet && S.sheet.draft === d) { rerenderSheetKeepScroll(); geoHint(); }
+  return r;
 }
 function readGeoIntoDraft(d) {
   const g = parseGeo(d.geo);
@@ -628,7 +671,7 @@ function readGeoIntoDraft(d) {
   }
 }
 A.pasteGeo = async () => {
-  try { const t = await navigator.clipboard.readText(); S.sheet.draft.geo = t; readGeoIntoDraft(S.sheet.draft); saveState(); rerenderSheetKeepScroll(); geoHint(); }
+  try { const t = await navigator.clipboard.readText(); const d = S.sheet.draft; d.geo = t; d.lat = ''; d.lng = ''; readGeoIntoDraft(d); saveState(); rerenderSheetKeepScroll(); geoHint(); tryResolveDraft(d); }
   catch (e) { toast('Нет доступа к буферу — вставь вручную'); }
 };
 A.geoMe = () => {
@@ -644,19 +687,22 @@ A.pickStart = () => {
   if (map && d.lat !== '') map.setView([+d.lat, +d.lng], Math.max(map.getZoom(), 16));
   renderMapUI();
 };
-A.pickCancel = () => { const d = S.pick.draft; S.pick = null; saveState(); openForm(d); };
+A.pickCancel = () => { const { draft: d, ret } = S.pick; S.pick = null; saveState(); if (ret === 'ev') { showTab('today'); openSheet({ type: 'ev', draft: d }); } else openForm(d); };
 A.pickDone = () => {
   const d = S.pick.draft;
-  if (map) { readGeoIntoDraft(d); const c = map.getCenter(); d.lat = +c.lat.toFixed(6); d.lng = +c.lng.toFixed(6); d.geo = `${d.lat}, ${d.lng}`; }
-  S.pick = null; saveState(); openForm(d); setTimeout(geoHint, 0);
+  const ret = S.pick.ret;
+  if (map) { readGeoIntoDraft(d); const c = map.getCenter(); d.lat = +c.lat.toFixed(6); d.lng = +c.lng.toFixed(6); if (ret !== 'ev') d.geo = `${d.lat}, ${d.lng}`; }
+  S.pick = null; saveState();
+  if (ret === 'ev') { showTab('today'); openSheet({ type: 'ev', draft: d }); } else { openForm(d); setTimeout(geoHint, 0); }
 };
-A.saveForm = () => {
+A.saveForm = async () => {
   const d = S.sheet.draft; readGeoIntoDraft(d);
+  if ((d.lat === '' || d.lat == null) && parseGeo(d.geo || '') && parseGeo(d.geo).short) { toast('Ищу точку по ссылке…'); await tryResolveDraft(d); }
   if (!d.name.trim()) return toast('Нужно название');
   if (!d.cat) return toast('Выбери категорию');
   if (d.lat === '' || d.lat == null) return toast('Нет точки: вставь ссылку с координатами или «Указать на карте»');
   const lat = +d.lat, lng = +d.lng;
-  const obj = { name: d.name.trim(), cat: d.cat, sub: d.sub || undefined, city: nearestCity(lat, lng), lat, lng, ja: d.ja.trim() || undefined, hours: d.hours.trim() || undefined, price: d.price.trim() || undefined, notes: d.notes.trim() || undefined, gmaps: d.gmaps || undefined, source: (d.srcType || d.srcUrl || d.srcText) ? { type: d.srcType || undefined, url: d.srcUrl.trim() || undefined, text: d.srcText.trim() || undefined } : undefined };
+  const obj = { name: d.name.trim(), cat: d.cat, sub: d.sub || undefined, city: nearestCity(lat, lng), lat, lng, ja: d.ja.trim() || undefined, hours: d.hours.trim() || undefined, price: d.price.trim() || undefined, notes: d.notes.trim() || undefined, try: (d.try || '').trim() || undefined, gmaps: d.gmaps || undefined, source: (d.srcType || d.srcUrl || d.srcText) ? { type: d.srcType || undefined, url: d.srcUrl.trim() || undefined, text: d.srcText.trim() || undefined } : undefined };
   let id = d.id;
   if (id) {
     const base = T.places.find(p => p.id === id);
@@ -817,11 +863,11 @@ A.day = el => { S.day = el.dataset.d; saveState(); renderToday(); };
 function timeKey(t) {
   const x = String(t || '').toLowerCase(); const m = x.match(/(\d{1,2})(?:[:.](\d{2}))?/);
   if (m) return +m[1] * 60 + +(m[2] || 0);
-  if (/утр|откр/.test(x)) return 540; if (/день|обед/.test(x)) return 780; if (/вечер/.test(x)) return 1080; if (/ноч/.test(x)) return 1320;
+  if (/утр|откр/.test(x)) return 540; if (/день|обед/.test(x)) return 780; if (/закат/.test(x)) return 1020; if (/вечер/.test(x)) return 1080; if (/ноч/.test(x)) return 1320;
   return null;
 }
 function timeline(d, day) {
-  const base = day.items.map((it, i) => Object.assign({}, it, { _key: d + '#' + i }));
+  let n = 0; const base = day.items.map(it => Object.assign({}, it, { _key: d + '#' + (it.id ? it.id : n++) }));
   const mine = (U.events || []).filter(e => e.date === d).map(e => Object.assign({}, e, { _user: true }));
   const out = base.slice();
   for (const e of mine.sort((a, b) => (timeKey(a.t) ?? 9999) - (timeKey(b.t) ?? 9999))) {
@@ -833,8 +879,19 @@ function timeline(d, day) {
 }
 A.planEdit = () => { S.planEdit = !S.planEdit; saveState(); renderToday(); };
 A.itemHide = el => { U.hiddenItems = U.hiddenItems || {}; const k = el.dataset.k; if (U.hiddenItems[k]) delete U.hiddenItems[k]; else U.hiddenItems[k] = true; saveUser(); renderToday(); };
-A.evAdd = el => openSheet({ type: 'ev', draft: { id: '', date: el.dataset.d, t: '', title: '', text: '', place: '' } });
-A.evEdit = el => { const e = (U.events || []).find(x => x.id === el.dataset.id); if (e) openSheet({ type: 'ev', draft: Object.assign({ place: '', text: '' }, e) }); };
+A.evAdd = el => openSheet({ type: 'ev', draft: { id: '', date: el.dataset.d, t: '', title: '', text: '', place: '', geo: '', lat: '', lng: '', cat: '' } });
+A.evEdit = el => { const e = (U.events || []).find(x => x.id === el.dataset.id); if (e) openSheet({ type: 'ev', draft: Object.assign({ place: '', text: '', geo: '', lat: '', lng: '', cat: '' }, e) }); };
+A.evCat = el => { const d = S.sheet.draft; d.cat = d.cat === el.dataset.id ? '' : el.dataset.id; saveState(); rerenderSheetKeepScroll(); };
+A.evPick = () => {
+  const d = S.sheet.draft; readGeoIntoDraft(d);
+  S.pick = { draft: d, ret: 'ev' }; S.sheet = null; saveState();
+  showTab('map');
+  if (map) {
+    if (d.lat !== '' && d.lat != null) map.setView([+d.lat, +d.lng], 16);
+    else { const day = T.days.find(x => x.date === d.date) || {}; const c = T.cities.find(x => x.name === (day.city || '').split(' ')[0]); if (c) map.setView([c.lat, c.lng], 15); }
+  }
+  renderMapUI();
+};
 SHEETS.ev = spec => {
   const d = spec.draft;
   const day = T.days.find(x => x.date === d.date) || {};
@@ -845,18 +902,35 @@ SHEETS.ev = spec => {
     body: `<div class="grid2"><label class="field"><span>Время</span><input data-f="t" value="${esc(d.t)}" placeholder="14:30 или вечер"></label><label class="field"><span>День</span><select data-f="date">${tripDays().map(x => `<option value="${x}" ${x === d.date ? 'selected' : ''}>${fDayShort(x)}</option>`).join('')}</select></label></div>
     <label class="field"><span>Что</span><input data-f="title" value="${esc(d.title)}" placeholder="Ужин в идзакае"></label>
     <label class="field"><span>Подробности</span><textarea data-f="text" placeholder="Бронь на 19:00, спросить столик у окна">${esc(d.text)}</textarea></label>
-    <label class="field"><span>Место на карте (необязательно)</span><select data-f="place"><option value="">— без места —</option>${pl.map(p => `<option value="${esc(p.id)}" ${p.id === d.place ? 'selected' : ''}>${esc(p.name)}${p.city ? ' · ' + esc(cityName(p.city)) : ''}</option>`).join('')}</select></label>
+    <label class="field"><span>Ссылка на место из Google Maps</span><textarea data-f="geo" rows="2" style="min-height:56px" placeholder="Вставь ссылку «Поделиться» из Google Maps">${esc(d.geo || '')}</textarea><span id="geo-hint" class="hint"></span></label>
+    <div class="row"><button class="btn sm grow" data-act="pasteGeo">Вставить из буфера</button><button class="btn sm grow" data-act="evPick">Указать на карте</button></div>
+    ${true ? `<div class="stack" style="gap:6px"><span class="label">Категория точки (если по ссылке)</span><div class="chips wrap">${T.categories.filter(c => c.id !== 'stay').map(c => `<button class="chip" data-act="evCat" data-id="${c.id}" aria-pressed="${d.cat === c.id}"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</button>`).join('')}</div></div>` : ''}
+    <label class="field"><span>…или уже сохранённое место</span><select data-f="place"><option value="">— без места —</option>${pl.map(p => `<option value="${esc(p.id)}" ${p.id === d.place ? 'selected' : ''}>${esc(p.name)}${p.city ? ' · ' + esc(cityName(p.city)) : ''}</option>`).join('')}</select></label>
     <button class="btn primary wide" data-act="evSave">Сохранить</button>
     ${d.place ? `<button class="btn wide" data-act="place" data-id="${esc(d.place)}">Показать место на карте</button>` : ''}
     ${d.id ? '<button class="btn warn wide" data-act="evDel">Удалить</button>' : ''}`
   };
 };
-A.evSave = () => {
+A.evSave = async () => {
   const d = S.sheet.draft; if (!d.title.trim()) return toast('Напиши, что за событие');
   U.events = U.events || [];
+  if ((d.geo || '').trim() || (d.lat !== '' && d.lat != null)) {
+    readGeoIntoDraft(d);
+    if (d.lat === '' || d.lat == null) {
+      const g = parseGeo(d.geo);
+      if (g && g.short) { toast('Ищу точку по ссылке…'); await tryResolveDraft(d); }
+      if (d.lat === '' || d.lat == null) return toast('Не нашёл координаты по ссылке — нажми «Указать на карте»');
+    }
+    const g = parseGeo(d.geo || '') || {};
+    const pid = uid('u-'); const lat = +d.lat, lng = +d.lng;
+    U.places.push(JSON.parse(JSON.stringify({ id: pid, created: new Date().toISOString(), name: d.resolvedName || g.name || g.query || d.title.trim(), cat: d.cat || 'sight', city: nearestCity(lat, lng), lat, lng, gmaps: d.gmaps || (g.url && /google|goo\.gl/.test(g.url) ? g.url : undefined), notes: (d.text || '').trim() || undefined })));
+    setMeta(pid, { day: d.date });
+    d.place = pid; d.geo = ''; d.lat = ''; d.lng = ''; d.resolvedName = '';
+    toast('Место добавлено на карту');
+  }
   const rec = { id: d.id || uid('ev'), date: d.date, t: d.t.trim(), title: d.title.trim(), text: (d.text || '').trim(), place: d.place || '' };
   const i = U.events.findIndex(x => x.id === rec.id); if (i >= 0) U.events[i] = rec; else U.events.push(rec);
-  saveUser(); S.day = rec.date; closeSheet(); renderToday(); toast('Добавлено в план');
+  saveUser(); S.day = rec.date; closeSheet(); renderToday(); refreshMarkers();
 };
 A.evDel = el => { if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Точно удалить?'; return; } U.events = (U.events || []).filter(x => x.id !== S.sheet.draft.id); saveUser(); closeSheet(); renderToday(); };
 A.goChecklist = () => { S.phr = 'checks'; showTab('phrases'); };
@@ -1058,6 +1132,12 @@ function renderPhrases() {
   } else if (seg === 'contacts') {
     body = `<div class="sos"><a href="tel:110" data-keep="1"><b>110</b><span>полиция</span></a><a href="tel:119" data-keep="1"><b>119</b><span>скорая и пожарные</span></a></div>
     <div class="card pad0">${T.contacts.filter(c => !['110', '119'].includes(c.phone)).map(c => `<a class="list-row" href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}" data-keep="1"><span class="grow"><b style="display:block;font-size:15px">${esc(c.name)}</b><small class="muted" style="font-size:13px">${esc(c.phone)}${c.note ? ' · ' + esc(c.note) : ''}</small></span><span class="tl-go">${I.chev}</span></a>`).join('')}</div>`;
+  } else if (seg === 'shop') {
+    const sub = S.shopSub || 'places';
+    body = `<div class="chips"><button class="chip" data-act="shopSub" data-v="places" aria-pressed="${sub === 'places'}">Магазины</button><button class="chip" data-act="shopSub" data-v="pharm" aria-pressed="${sub === 'pharm'}">Аптека</button><button class="chip" data-act="shopSub" data-v="uniq" aria-pressed="${sub === 'uniq'}">Только в Японии</button></div>` + (sub === 'pharm' ? pharmGuide() : sub === 'uniq' ? uniqGuide() : guideByCity(p => p.cat === 'shop' || (p.cat === 'sight' && p.sub === 'Аттракцион' && !p._base) || (p.cat === 'sight' && p.sub === 'Аттракцион' && String(p.id).startsWith('ig-')), 'Пока пусто — добавляй магазины на карту, они появятся здесь.'));
+  } else if (seg === 'food') {
+    const kb = (T.guides && T.guides.konbini) || [];
+    body = guideByCity(p => p.cat === 'food', 'Пока пусто — добавляй кафе на карту, они появятся здесь.') + (kb.length ? `<div class="stack" style="gap:6px"><span class="label">Попробовать в комбини</span><div class="card pad0">${kb.map(k => `<div class="list-row" style="flex-direction:column;align-items:stretch;gap:2px"><b style="font-size:15px">${esc(k.name)}</b><small class="ja muted" lang="ja">${esc(k.ja)}</small><span style="font-size:13px;line-height:1.45">${esc(k.what)}</span></div>`).join('')}</div></div>` : '');
   } else {
     body = T.checklists.map(cl => {
       const st = U.checks[cl.id] || {}; const extra = U.extraChecks[cl.id] || [];
@@ -1067,8 +1147,48 @@ function renderPhrases() {
       <div class="row" style="padding:8px 0 10px"><input id="add-${cl.id}" placeholder="Добавить пункт" style="flex:1;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--field);padding:0 12px;font-size:16px"><button class="btn sm" data-act="checkAdd" data-l="${cl.id}">${I.plus}</button></div></div></div>`;
     }).join('');
   }
-  v.innerHTML = `<div class="head" style="flex-direction:column;align-items:stretch;gap:12px"><h1 class="title">Шпаргалки</h1><div class="seg">${[['phrases', 'Фразы'], ['contacts', 'Контакты'], ['checks', 'Чек-листы']].map(([k, l]) => `<button data-act="phrSeg" data-v="${k}" aria-pressed="${seg === k}">${l}</button>`).join('')}</div></div><div class="stack">${body}</div>`;
+  v.innerHTML = `<div class="head" style="flex-direction:column;align-items:stretch;gap:12px"><h1 class="title">Шпаргалки</h1><div class="seg seg5">${[['phrases', 'Фразы'], ['contacts', 'Контакты'], ['checks', 'Списки'], ['shop', 'Шопинг'], ['food', 'Еда']].map(([k, l]) => `<button data-act="phrSeg" data-v="${k}" aria-pressed="${seg === k}">${l}</button>`).join('')}</div></div><div class="stack">${body}</div>`;
 }
+function placeExtras(p) {
+  const tips = Array.isArray(p.tips) ? p.tips : []; const links = (Array.isArray(p.links) ? p.links : []).filter(l => l && safeUrl(l.url));
+  return (tips.length ? `<div class="card stack" style="gap:6px;background:var(--indigo-s)"><b>Как купить и советы</b>${tips.map(t => `<div style="font-size:14px;line-height:1.45">• ${esc(t)}</div>`).join('')}</div>` : '')
+    + (links.length ? `<div class="stack" style="gap:6px">${links.map((l, i) => `<a class="btn ${i ? '' : 'primary'} wide" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener" data-keep="1">${I.ext}${esc(l.label || 'Сайт')}</a>`).join('')}</div>` : '');
+}
+function guideCard(p) {
+  const c = catById(p.cat), m = meta(p.id), src = p.source || {};
+  const facts = [p.hours, p.price].filter(Boolean).map(esc).join(' · ');
+  return `<div class="card stack" style="gap:7px">
+    <div class="between" style="align-items:flex-start"><b style="font-size:16px;line-height:1.3">${m.must ? '★ ' : ''}${esc(p.name)}${m.status === 'been' ? ' ✓' : ''}</b><span class="badge" style="background:${c.color}22;color:${c.color};flex:none">${esc(p.sub || c.name)}</span></div>
+    ${p.notes ? `<div style="font-size:14px;line-height:1.45">${esc(p.notes)}</div>` : ''}
+    ${p.try ? `<div class="quote" style="border-left-color:var(--good)"><b>Брать / пробовать:</b> ${esc(p.try)}</div>` : ''}
+    ${facts ? `<div class="muted" style="font-size:13px">${facts}</div>` : ''}
+    ${placeExtras(p)}
+    ${m.note ? `<div style="font-size:13px"><b>Моя заметка:</b> ${esc(m.note)}</div>` : ''}
+    ${src.text ? `<div class="quote">${esc(src.text)}${src.type ? ` <span class="badge grey">${esc(SRC[src.type] || src.type)}</span>` : ''}</div>` : ''}
+    <div class="row"><button class="btn sm grow" data-act="place" data-id="${esc(p.id)}">На карте</button><a class="btn sm grow" href="${esc(gmapsPlaceUrl(p))}" target="_blank" rel="noopener" data-keep="1">Google Maps</a>${safeUrl(src.url) ? `<a class="btn sm" href="${esc(safeUrl(src.url))}" target="_blank" rel="noopener" data-keep="1">Пост</a>` : ''}</div>
+  </div>`;
+}
+function guideByCity(filter, empty) {
+  const list = getPlaces().filter(filter);
+  if (!list.length) return `<div class="card empty">${empty}</div>`;
+  return T.cities.map(c => { const xs = list.filter(p => p.city === c.id); return xs.length ? `<div class="stack" style="gap:8px"><span class="label">${esc(c.name)} · ${xs.length}</span>${xs.map(guideCard).join('')}</div>` : ''; }).join('')
+    + (list.some(p => !T.cities.some(c => c.id === p.city)) ? `<div class="stack" style="gap:8px"><span class="label">Другое</span>${list.filter(p => !T.cities.some(c => c.id === p.city)).map(guideCard).join('')}</div>` : '');
+}
+function pharmGuide() {
+  const g = (T.guides && T.guides.pharmacy) || []; const av = (T.guides && T.guides.avoid) || [];
+  const groups = [...new Set(g.map(x => x.g))];
+  return `<div class="card stack" style="gap:6px;background:var(--indigo-s)"><b>Как покупать</b><span style="font-size:13px;line-height:1.45">Нажми на товар — покажется крупно по-японски, покажи аптекарю. Tax-free с 1.11: платишь полную цену с паспортом, налог вернут после проверки на таможне в Нарите — покупки держать под рукой до сдачи багажа. Цены примерные.</span></div>`
+    + groups.map(gr => `<div class="stack" style="gap:6px"><span class="label">${esc(gr)}</span><div class="card pad0">${g.map((x, i) => x.g !== gr ? '' : `<button class="list-row" data-act="pharm" data-i="${i}" style="flex-direction:column;align-items:stretch;gap:3px"><span class="between"><b style="font-size:15px">${esc(x.name)}</b><span class="muted num" style="font-size:12px;flex:none">${esc(x.price || '')}</span></span><small class="ja muted" lang="ja">${esc(x.ja)}</small><span style="font-size:13px;line-height:1.45">${esc(x.what)}</span>${x.warn ? `<span class="badge warn" style="white-space:normal;height:auto;padding:3px 8px;align-self:flex-start">${esc(x.warn)}</span>` : ''}</button>`).join('')}</div></div>`).join('')
+    + (av.length ? `<div class="stack" style="gap:6px"><span class="label" style="color:var(--warn)">Не везти домой</span><div class="card pad0" style="border:1px solid var(--warn-s)">${av.map(x => `<div class="list-row" style="flex-direction:column;align-items:stretch;gap:3px"><b style="font-size:15px;color:var(--warn-d)">${esc(x.name)}</b><small class="ja muted" lang="ja">${esc(x.ja)}</small><span style="font-size:13px;line-height:1.45">${esc(x.why)}</span></div>`).join('')}</div></div>` : '');
+}
+function uniqGuide() {
+  const g = (T.guides && T.guides.unique) || []; const groups = [...new Set(g.map(x => x.g))];
+  if (!g.length) return '<div class="card empty">Пока пусто.</div>';
+  return `<div class="card stack" style="gap:6px;background:var(--indigo-s)"><b>Чего нет больше нигде</b><span style="font-size:13px;line-height:1.45">Отобрано под маршрут и даты. Нажми на пункт с меткой — откроется на карте.</span></div>`
+    + groups.map(gr => `<div class="stack" style="gap:6px"><span class="label">${esc(gr)}</span><div class="card pad0">${g.map(x => x.g !== gr ? '' : `<${x.place ? `button data-act="place" data-id="${esc(x.place)}"` : 'div'} class="list-row" style="flex-direction:column;align-items:stretch;gap:3px;text-align:left"><span class="between"><b style="font-size:15px">${esc(x.name)}</b>${x.place ? `<span class="tl-go" style="flex:none">${I.chev}</span>` : ''}</span><small class="ja muted" lang="ja">${esc(x.ja)}</small><span style="font-size:13px;line-height:1.45">${esc(x.what)}</span>${x.warn ? `<span class="badge warn" style="white-space:normal;height:auto;padding:3px 8px;align-self:flex-start">${esc(x.warn)}</span>` : ''}</${x.place ? 'button' : 'div'}>`).join('')}</div></div>`).join('');
+}
+A.shopSub = el => { S.shopSub = el.dataset.v; saveState(); renderPhrases(); $('#v-phrases').scrollTop = 0; };
+A.pharm = el => { const x = T.guides.pharmacy[+el.dataset.i]; if (x) showBig({ title: x.name, ja: x.ja, sub: 'これを探しています。', ru: 'Ищу вот это — покажите аптекарю. ' + (x.what || '') }); };
 A.phrSeg = el => { S.phr = el.dataset.v; saveState(); renderPhrases(); $('#v-phrases').scrollTop = 0; };
 A.phrase = el => { const p = T.phrases.find(x => x.id === el.dataset.id); if (p) showBig({ title: p.title, ja: p.ja, sub: p.extra || '', ru: p.ru }); };
 A.check = el => { const l = el.dataset.l, k = el.dataset.k; U.checks[l] = U.checks[l] || {}; if (U.checks[l][k]) delete U.checks[l][k]; else U.checks[l][k] = true; saveUser(); const st = $('#v-phrases').scrollTop; renderPhrases(); $('#v-phrases').scrollTop = st; };
