@@ -1,5 +1,5 @@
 /* Offline cache. Shell: stale-while-revalidate. data.enc: network-first. Tiles/CDN/fonts: cache-first. */
-const V = 'v6';
+const V = 'v7';
 const SHELL = 'shell-' + V, DATA = 'data', TILES = 'tiles-osm', CDN = 'cdn';
 const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'en.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs'];
 const CDN_FILES = ['https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'];
